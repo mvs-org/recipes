@@ -1,12 +1,31 @@
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use runtime::{self, opaque::Block, RuntimeApi};
+use futures::channel::mpsc::Sender;
 use sc_consensus_pow::{MiningWorker, MiningMetadata, MiningBuild};
 use sc_consensus_pow::{Error, PowAlgorithm};
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 use sp_api::ProvideRuntimeApi;
 use std::sync::Arc;
 use parking_lot::Mutex;
+
+/// Message sent to the background authorship task, usually by RPC.
+pub enum EtheminerCmd<Hash> {
+
+	GetWork {
+		/// specify the parent hash of the about-to-created block
+		parent_hash: Option<Hash>,
+		/// sender to report errors/success to the rpc.
+		sender: Sender<()>,
+	},
+	/// Tells the engine to finalize the block with the supplied hash
+	SubmitWork {
+		/// hash of the block
+		hash: Hash,
+		/// sender to report errors/success to the rpc.
+		sender: Sender<()>,
+	}
+}
 
 #[rpc]
 pub trait EthashRpc {
@@ -21,34 +40,22 @@ pub trait EthashRpc {
 }
 
 /// A struct that implements the `EthashRpc`
-pub struct EthashData<B, Algorithm, C> where
-	B: BlockT,
-	Algorithm: PowAlgorithm<B>,
-	C: ProvideRuntimeApi<B>,
-{
+pub struct EthashData<C, Hash> {
 	client: Arc<C>,
-	worker: Arc<Mutex<MiningWorker<B, Algorithm, C>>>,
+	command_sink: Sender<EtheminerCmd<Hash>>,
 }
 
-impl<B, Algorithm, C> EthashData<B, Algorithm, C> where
-	B: BlockT,
-	Algorithm: PowAlgorithm<B>  + Send ,
-	C: ProvideRuntimeApi<B> + Send + Sync ,
-{
+impl<C, Hash> EthashData<C, Hash> {
 	/// Create new `EthashData` instance with the given reference to the client.
-	pub fn new(client: Arc<C>, worker: Arc<Mutex<MiningWorker<B, Algorithm, C>>>) -> Self {
+	pub fn new(client: Arc<C>, command_sink: Sender<EtheminerCmd<Hash>>) -> Self {
 		Self {
 			client,
-			worker,
+			command_sink,
 		}
 	}
 }
 
-impl<B, Algorithm, C> EthashRpc for EthashData<B, Algorithm, C> where
-	B: BlockT,
-	Algorithm: PowAlgorithm<B>  + Send ,
-	C: ProvideRuntimeApi<B>  + Send + Sync ,
-{
+impl<C: Send + Sync + 'static, Hash: Send + 'static> EthashRpc for EthashData<C, Hash> {
 	fn eth_getWork(&self) -> Result<u64> {
 		Ok(0)
 	}

@@ -146,10 +146,38 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 	let is_authority = config.role.is_authority();
 	let prometheus_registry = config.prometheus_registry().cloned();
 
-	// // Channel for the rpc handler to communicate with the authorship task.
-	// let (command_sink, commands_stream) = futures::channel::mpsc::channel(1000);
+	// Channel for the rpc handler to communicate with the authorship task.
+	let (command_sink, commands_stream) = futures::channel::mpsc::channel(1000);
 
-	let rpc_extensions_builder = Box::new(|_, _| ());
+	let rpc_extensions_builder = {
+		let client = client.clone();
+		let pool = transaction_pool.clone();
+		Box::new(move |deny_unsafe, _| {
+			let deps = crate::rpc::FullDeps {
+				client: client.clone(),
+				pool: pool.clone(),
+				deny_unsafe,
+				command_sink: command_sink.clone(),
+			};
+
+			crate::rpc::create_full(deps)
+		})
+	};
+
+	sc_service::spawn_tasks(sc_service::SpawnTasksParams {
+		network: network.clone(),
+		client: client.clone(),
+		keystore: keystore_container.sync_keystore(),
+		task_manager: &mut task_manager,
+		transaction_pool: transaction_pool.clone(),
+		rpc_extensions_builder,
+		on_demand: None,
+		remote_blockchain: None,
+		backend,
+		network_status_sinks,
+		system_rpc_tx,
+		config,
+	})?;
 
 	if is_authority {
 		let proposer = sc_basic_authorship::ProposerFactory::new(
@@ -182,75 +210,38 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 			can_author_with,
 		);
 
-		// let deps = crate::rpc::FullDeps {
-		// 	client: client.clone(),
-		// 	pool: transaction_pool.clone(),
-		// 	deny_unsafe: sc_rpc_api::DenyUnsafe::No,
-		// 	worker: _worker.clone(),
-		// };
-		// crate::rpc::create_full(deps);
-
-		let rpc_extensions_builder = {
-			let client = client.clone();
-			let pool = transaction_pool.clone();
-			Box::new(move |deny_unsafe| {
-				let deps = crate::rpc::FullDeps {
-					client: client.clone(),
-					pool: pool.clone(),
-					deny_unsafe,
-					worker: _worker.clone(),
-				};
-
-				crate::rpc::create_full(deps)
-			})
-		};
-
 		task_manager
 			.spawn_essential_handle()
 			.spawn_blocking("pow", worker_task);
 		
-		// // Start Mining
-		// let mut nonce: U256 = U256::from(0);
-		// thread::spawn(move || loop {
-		// 	let worker = _worker.clone();
-		// 	let metadata = worker.lock().metadata();
-		// 	if let Some(metadata) = metadata {
-		// 		let compute = Compute {
-		// 			difficulty: metadata.difficulty,
-		// 			pre_hash: metadata.pre_hash,
-		// 			nonce,
-		// 		};
-		// 		let seal = compute.compute();
-		// 		if hash_meets_difficulty(&seal.work, seal.difficulty) {
-		// 			nonce = U256::from(0);
-		// 			let mut worker = worker.lock();
-		// 			worker.submit(seal.encode());
-		// 		} else {
-		// 			nonce = nonce.saturating_add(U256::from(1));
-		// 			if nonce == U256::MAX {
-		// 				nonce = U256::from(0);
-		// 			}
-		// 		}
-		// 	} else {
-		// 		thread::sleep(Duration::new(1, 0));
-		// 	}
-		// });
+		// Start Mining
+		let mut nonce: U256 = U256::from(0);
+		thread::spawn(move || loop {
+			//let cmd_stream = commands_stream;
+			let worker = _worker.clone();
+			let metadata = worker.lock().metadata();
+			if let Some(metadata) = metadata {
+				let compute = Compute {
+					difficulty: metadata.difficulty,
+					pre_hash: metadata.pre_hash,
+					nonce,
+				};
+				let seal = compute.compute();
+				if hash_meets_difficulty(&seal.work, seal.difficulty) {
+					nonce = U256::from(0);
+					let mut worker = worker.lock();
+					worker.submit(seal.encode());
+				} else {
+					nonce = nonce.saturating_add(U256::from(1));
+					if nonce == U256::MAX {
+						nonce = U256::from(0);
+					}
+				}
+			} else {
+				thread::sleep(Duration::new(1, 0));
+			}
+		});
 	}
-
-	sc_service::spawn_tasks(sc_service::SpawnTasksParams {
-		network: network.clone(),
-		client: client.clone(),
-		keystore: keystore_container.sync_keystore(),
-		task_manager: &mut task_manager,
-		transaction_pool: transaction_pool.clone(),
-		rpc_extensions_builder,
-		on_demand: None,
-		remote_blockchain: None,
-		backend,
-		network_status_sinks,
-		system_rpc_tx,
-		config,
-	})?;
 
 	network_starter.start_network();
 	Ok(task_manager)
