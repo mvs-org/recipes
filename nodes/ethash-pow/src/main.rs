@@ -8,6 +8,8 @@ mod cli;
 mod command;
 mod rpc;
 mod ethash_rpc;
+mod helpers;
+mod types;
 
 fn main() -> sc_cli::Result<()> {
 	command::run()
