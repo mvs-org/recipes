@@ -65,6 +65,10 @@ use log::*;
 use sp_timestamp::{InherentError as TIError, TimestampInherentData};
 
 use crate::worker::UntilImportedOrTimeout;
+use sp_core::U256;
+// use sp_std::{
+// 	convert::TryFrom,
+// };
 
 #[derive(derive_more::Display, Debug)]
 pub enum Error<B: BlockT> {
@@ -661,7 +665,7 @@ pub fn start_mining_worker<Block, C, S, Algorithm, E, SO, CAW>(
 			};
 
 			let proposal = match proposer.propose(
-				inherent_data,
+				inherent_data.clone(),
 				inherent_digest,
 				build_time.clone(),
 				RecordProof::No,
@@ -684,6 +688,8 @@ pub fn start_mining_worker<Block, C, S, Algorithm, E, SO, CAW>(
 					pre_hash: proposal.block.header().hash(),
 					pre_runtime: pre_runtime.clone(),
 					difficulty,
+					number: (*proposal.block.header().number()),
+					timestamp: inherent_data.timestamp_inherent_data().unwrap(),
 				},
 				proposal,
 			};

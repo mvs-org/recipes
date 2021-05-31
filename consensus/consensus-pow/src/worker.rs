@@ -18,17 +18,18 @@
 
 use std::{pin::Pin, time::Duration, collections::HashMap, any::Any, borrow::Cow};
 use sc_client_api::ImportNotifications;
-use sp_runtime::{DigestItem, traits::Block as BlockT, generic::BlockId};
+use sp_runtime::{DigestItem, traits::Block as BlockT, generic::BlockId, traits::NumberFor};
 use sp_consensus::{Proposal, BlockOrigin, BlockImportParams, import_queue::BoxBlockImport};
 use futures::{prelude::*, task::{Context, Poll}};
 use futures_timer::Delay;
+use sp_core::U256;
 use log::*;
 
 use crate::{INTERMEDIATE_KEY, POW_ENGINE_ID, Seal, PowAlgorithm, PowIntermediate};
 
 /// Mining metadata. This is the information needed to start an actual mining loop.
 #[derive(Clone, Eq, PartialEq)]
-pub struct MiningMetadata<H, D> {
+pub struct MiningMetadata<H, D, B: BlockT> {
 	/// Currently known best hash which the pre-hash is built on.
 	pub best_hash: H,
 	/// Mining pre-hash.
@@ -37,12 +38,16 @@ pub struct MiningMetadata<H, D> {
 	pub pre_runtime: Option<Vec<u8>>,
 	/// Mining target difficulty.
 	pub difficulty: D,
+	/// block number
+	pub number: NumberFor<B>,
+	/// block timestamp
+	pub timestamp: u64,
 }
 
 /// A build of mining, containing the metadata and the block proposal.
 pub struct MiningBuild<Block: BlockT, Algorithm: PowAlgorithm<Block>, C: sp_api::ProvideRuntimeApi<Block>> {
 	/// Mining metadata.
-	pub metadata: MiningMetadata<Block::Hash, Algorithm::Difficulty>,
+	pub metadata: MiningMetadata<Block::Hash, Algorithm::Difficulty, Block>,
 	/// Mining proposal.
 	pub proposal: Proposal<Block, sp_api::TransactionFor<C, Block>>,
 }
@@ -78,7 +83,7 @@ impl<Block, Algorithm, C> MiningWorker<Block, Algorithm, C> where
 	}
 
 	/// Get a copy of the current mining metadata, if available.
-	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, Algorithm::Difficulty>> {
+	pub fn metadata(&self) -> Option<MiningMetadata<Block::Hash, Algorithm::Difficulty, Block>> {
 		self.build.as_ref().map(|b| b.metadata.clone())
 	}
 
