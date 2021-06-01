@@ -1421,6 +1421,7 @@ name = "ethash-pow"
 version = "3.0.0"
 dependencies = [
  "api-runtime",
+ "derive_more",
  "ethash",
  "ethereum-types",
  "futures 0.3.13",

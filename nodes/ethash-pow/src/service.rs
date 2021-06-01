@@ -314,9 +314,20 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 	while let Some(command) = commands_stream.next().await {
 		match command {
 			EtheminerCmd::GetWork { sender } => {
+				// let metadata = worker.lock().metadata();
+				// if let Some(metadata) = metadata {
+				// 	let compute = Compute {
+				// 		difficulty: metadata.difficulty,
+				// 		pre_hash: metadata.pre_hash,
+				// 		nonce,
+				// 	};
+				// 	let seal = compute.compute();
+				// }
+			}
+			EtheminerCmd::SubmitWork { sender } => {
 				
 			}
-			EtheminerCmd::SubmitWork { hash, sender } => {
+			EtheminerCmd::SubmitHashrate { hash, sender } => {
 				
 			}
 		}
