@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::channel::mpsc::Sender;
 use runtime::{opaque::Block, Hash};
 
-use crate::ethash_rpc::EtheminerCmd;
+use crate::rpc::ethash_rpc::EtheminerCmd;
 pub use sc_rpc_api::DenyUnsafe;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
@@ -48,8 +48,8 @@ where
 	));
 	
 	// Add a EthashRpc RPC
-	io.extend_with(crate::ethash_rpc::EthashRpc::to_delegate(
-		crate::ethash_rpc::EthashData::new(client, command_sink),
+	io.extend_with(crate::rpc::ethash_rpc::EthashRpc::to_delegate(
+		crate::rpc::ethash_rpc::EthashData::new(client, command_sink),
 	));
 
 	io

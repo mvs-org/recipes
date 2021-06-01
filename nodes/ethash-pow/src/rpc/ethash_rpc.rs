@@ -45,7 +45,7 @@ pub enum EtheminerCmd<Hash> {
 #[rpc(server)]
 pub trait EthashRpc {
 	#[rpc(name = "eth_getWork")]
-    fn eth_getWork(&self, _: Option<u64>) -> FutureResult<Work>;
+    fn eth_getWork(&self, _: Option<u64>) -> Result<Work>;
 
 	#[rpc(name = "eth_submitWork")]
 	fn eth_submitWork(&self, _: H64, _: H256, _: H256) -> Result<bool>;
@@ -60,12 +60,12 @@ pub trait EthashRpc {
 /// A struct that implements the `EthashRpc`
 pub struct EthashData<C, Hash> {
 	client: Arc<C>,
-	command_sink: Sender<EtheminerCmd<Hash>>,
+	command_sink: mpsc::Sender<EtheminerCmd<Hash>>,
 }
 
 impl<C, Hash> EthashData<C, Hash> {
 	/// Create new `EthashData` instance with the given reference to the client.
-	pub fn new(client: Arc<C>, command_sink: Sender<EtheminerCmd<Hash>>) -> Self {
+	pub fn new(client: Arc<C>, command_sink: mpsc::Sender<EtheminerCmd<Hash>>) -> Self {
 		Self {
 			client,
 			command_sink,
@@ -74,18 +74,20 @@ impl<C, Hash> EthashData<C, Hash> {
 }
 
 impl<C: Send + Sync + 'static, Hash: Send + 'static> EthashRpc for EthashData<C, Hash> {
-	fn eth_getWork(&self, no_new_work_timeout: Option<u64>) -> FutureResult<Work> {
-		let mut sink = self.command_sink.clone();
-		let future = async move {
-			let (sender, receiver) = oneshot::channel();
-			let command = EtheminerCmd::GetWork {
-				sender: Some(sender),
-			};
-			sink.send(command).await?;
-			receiver.await?
-		}.boxed();
+	fn eth_getWork(&self, no_new_work_timeout: Option<u64>) -> Result<Work> {
+		// let mut sink = self.command_sink.clone();
+		// let future = async move {
+		// 	let (sender, receiver) = oneshot::channel();
+		// 	let command = EtheminerCmd::GetWork {
+		// 		sender: Some(sender),
+		// 	};
+		// 	sink.send(command).await?;
+		// 	receiver.await?
+		// }.boxed();
 
-		Box::new(future.map_err(Error::from).compat())
+		// Box::new(future.map_err(Error::from).compat())
+
+		Err(errors::no_work())
 	}
 
 	fn eth_submitWork(&self, _: H64, _: H256, _: H256) -> Result<bool> {

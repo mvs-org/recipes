@@ -12,7 +12,13 @@ use sp_inherents::InherentDataProviders;
 use std::{sync::Arc, time::Duration};
 use std::thread;
 use sp_core::{U256, Encode};
-use crate::ethash_rpc::EtheminerCmd;
+use crate::rpc::ethash_rpc::EtheminerCmd;
+use sp_api::ProvideRuntimeApi;
+use sc_consensus_pow::{MiningWorker, MiningMetadata, MiningBuild};
+use sc_consensus_pow::{PowAlgorithm};
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use parking_lot::Mutex;
+use futures::prelude::*;
 
 // Our native executor instance.
 native_executor_instance!(
@@ -216,42 +222,10 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 			.spawn_blocking("pow", worker_task);
 		
 		// Start Mining
-		let mut nonce: U256 = U256::from(0);
-		thread::spawn(move || {
-			while let Some(command) = commands_stream.next().await {
-				match command {
-					EtheminerCmd::GetWork { sender } => {
-						
-					}
-					EtheminerCmd::SubmitWork { hash, sender } => {
-						
-					}
-				}
-			}
+		task_manager
+			.spawn_essential_handle()
+			.spawn_blocking("mining", run_mining_svc(_worker.clone(), commands_stream));
 
-			// let worker = _worker.clone();
-			// let metadata = worker.lock().metadata();
-			// if let Some(metadata) = metadata {
-			// 	let compute = Compute {
-			// 		difficulty: metadata.difficulty,
-			// 		pre_hash: metadata.pre_hash,
-			// 		nonce,
-			// 	};
-			// 	let seal = compute.compute();
-			// 	if hash_meets_difficulty(&seal.work, seal.difficulty) {
-			// 		nonce = U256::from(0);
-			// 		let mut worker = worker.lock();
-			// 		worker.submit(seal.encode());
-			// 	} else {
-			// 		nonce = nonce.saturating_add(U256::from(1));
-			// 		if nonce == U256::MAX {
-			// 			nonce = U256::from(0);
-			// 		}
-			// 	}
-			// } else {
-			// 	thread::sleep(Duration::new(1, 0));
-			// }
-		});
 	}
 
 	network_starter.start_network();
@@ -325,4 +299,26 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 	network_starter.start_network();
 
 	Ok(task_manager)
+}
+
+pub async fn run_mining_svc<B, Algorithm, C, CS>(
+	worker : Arc<Mutex<MiningWorker<B, Algorithm, C>>>,
+	mut commands_stream: CS,
+)
+	where 
+	B: BlockT,
+	Algorithm: PowAlgorithm<B>,
+	C: sp_api::ProvideRuntimeApi<B>,
+	CS: Stream<Item=EtheminerCmd<<B as BlockT>::Hash>> + Unpin + 'static,
+{
+	while let Some(command) = commands_stream.next().await {
+		match command {
+			EtheminerCmd::GetWork { sender } => {
+				
+			}
+			EtheminerCmd::SubmitWork { hash, sender } => {
+				
+			}
+		}
+	}
 }

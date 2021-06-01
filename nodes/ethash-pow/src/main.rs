@@ -7,7 +7,6 @@ mod service;
 mod cli;
 mod command;
 mod rpc;
-mod ethash_rpc;
 mod helpers;
 mod types;
 
