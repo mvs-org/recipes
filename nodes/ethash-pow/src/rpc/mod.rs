@@ -7,3 +7,7 @@ pub use self::rpc::{
     FullDeps,
     create_full,
 };
+
+pub use self::ethash_rpc::{
+    EtheminerCmd,
+};

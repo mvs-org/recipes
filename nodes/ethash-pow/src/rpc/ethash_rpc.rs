@@ -16,10 +16,9 @@ use futures::{
 // use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 // use sp_api::ProvideRuntimeApi;
 // use parking_lot::Mutex;
-use ethereum_types::{H160, H256, H64, U256, U64};
 use runtime::{self, opaque::Block, RuntimeApi};
 use std::sync::Arc;
-//use sp_core::{{H160, H256, H64, U256, U64}};
+use sp_core::{H160, H256, U256};
 use crate::types::work::{Work};
 use crate::helpers::{errors};
 
@@ -55,7 +54,7 @@ pub trait EthashRpc {
     fn eth_getWork(&self, _: Option<u64>) -> FutureResult<Work>;
 
 	#[rpc(name = "eth_submitWork")]
-	fn eth_submitWork(&self, _: H64, _: H256, _: H256) -> FutureResult<bool>;
+	fn eth_submitWork(&self, _: u64, _: H256, _: H256) -> FutureResult<bool>;
 
 	#[rpc(name = "eth_hashrate")]
     fn eth_hashrate(&self) -> Result<U256>;
@@ -95,7 +94,7 @@ impl<C: Send + Sync + 'static, Hash: Send + 'static> EthashRpc for EthashData<C,
 		Box::new(future.map_err(Error::from).compat())
 	}
 
-	fn eth_submitWork(&self, _: H64, hash: H256, _: H256) -> FutureResult<bool> {
+	fn eth_submitWork(&self, _: u64, hash: H256, _: H256) -> FutureResult<bool> {
 		let mut sink = self.command_sink.clone();
 		let future = async move {
 			let (sender, receiver) = oneshot::channel();
@@ -115,5 +114,24 @@ impl<C: Send + Sync + 'static, Hash: Send + 'static> EthashRpc for EthashData<C,
 
 	fn eth_submitHashrate(&self, _: U256, _: H256) -> Result<bool> {
 		Ok(true)
+	}
+}
+
+/// report any errors or successes encountered by the authorship task back
+/// to the rpc
+pub fn send_result<T: std::fmt::Debug>(
+	sender: &mut Sender<T>,
+	result: std::result::Result<T, RError>
+) {
+	if let Some(sender) = sender.take() {
+		if let Err(err) = sender.send(result) {
+			log::warn!("Server is shutting down: {:?}", err)
+		}
+	} else {
+		// instant seal doesn't report errors over rpc, simply log them.
+		match result {
+			Ok(r) => log::info!("Instant Seal success: {:?}", r),
+			Err(e) => log::error!("Instant Seal encountered an error: {}", e)
+		}
 	}
 }

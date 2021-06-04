@@ -11,14 +11,17 @@ use sp_consensus::import_queue::BasicQueue;
 use sp_inherents::InherentDataProviders;
 use std::{sync::Arc, time::Duration};
 use std::thread;
-use sp_core::{U256, Encode};
-use crate::rpc::ethash_rpc::EtheminerCmd;
+use sp_core::{U256, H256, Encode};
+use crate::rpc::{ethash_rpc, EtheminerCmd, error::{Error as RError}};
+use crate::types::{Work};
 use sp_api::ProvideRuntimeApi;
 use sc_consensus_pow::{MiningWorker, MiningMetadata, MiningBuild};
 use sc_consensus_pow::{PowAlgorithm};
-use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT, UniqueSaturatedInto};
 use parking_lot::Mutex;
 use futures::prelude::*;
+use ethash::{self, SeedHashCompute};
+use ethereum_types;
 
 // Our native executor instance.
 native_executor_instance!(
@@ -307,22 +310,37 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 )
 	where 
 	B: BlockT,
-	Algorithm: PowAlgorithm<B>,
+	Algorithm: PowAlgorithm<B, Difficulty = U256>,
 	C: sp_api::ProvideRuntimeApi<B>,
 	CS: Stream<Item=EtheminerCmd<<B as BlockT>::Hash>> + Unpin + 'static,
 {
+	let seed_compute = SeedHashCompute::default();
+
 	while let Some(command) = commands_stream.next().await {
 		match command {
-			EtheminerCmd::GetWork { sender } => {
-				// let metadata = worker.lock().metadata();
-				// if let Some(metadata) = metadata {
-				// 	let compute = Compute {
-				// 		difficulty: metadata.difficulty,
-				// 		pre_hash: metadata.pre_hash,
-				// 		nonce,
-				// 	};
-				// 	let seal = compute.compute();
-				// }
+			EtheminerCmd::GetWork { mut sender } => {
+				let metadata = worker.lock().metadata();
+				if let Some(metadata) = metadata {
+					let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(metadata.number);
+					let pow_hash:U256 = U256::from(metadata.pre_hash.as_ref());
+					let seed_hash:U256 = seed_compute.hash_block_number(nr).into();
+					let tmp:[u8; 32] = metadata.difficulty.into();
+					let tt = ethash::difficulty_to_boundary(&ethereum_types::U256::from(tmp));
+					let target:U256 = U256::from(tt.as_ref());
+
+					let ret = Ok(Work { 
+						pow_hash, 
+						seed_hash,
+						target, 
+						number: Some(nr),
+					 });
+
+					ethash_rpc::send_result(&mut sender, ret)
+
+					// ethash_rpc::send_result(&mut sender, future.await)
+				} else {
+					ethash_rpc::send_result(&mut sender, Err(RError::NoWork))
+				}
 			}
 			EtheminerCmd::SubmitWork { sender } => {
 				

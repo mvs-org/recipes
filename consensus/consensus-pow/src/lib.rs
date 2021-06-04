@@ -163,7 +163,7 @@ impl<Difficulty> PowAux<Difficulty> where
 /// Algorithm used for proof of work.
 pub trait PowAlgorithm<B: BlockT> {
 	/// Difficulty for the algorithm.
-	type Difficulty: TotalDifficulty + Default + Encode + Decode + Ord + Clone + Copy;
+	type Difficulty: TotalDifficulty + Default + Encode + Decode + Ord + Clone + Copy + 'static ;
 
 	/// Get the next block's difficulty.
 	///

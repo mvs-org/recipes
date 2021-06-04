@@ -69,6 +69,9 @@ pub enum Error {
 	///send error
 	#[display(fmt = "Consensus process is terminating")]
 	SendError(SendError),
+	/// no work
+	#[display(fmt = "No work now")]
+	NoWork,
 	/// Some other error.
 	#[display(fmt="Other error: {}", _0)]
 	Other(Box<dyn std::error::Error + Send>),

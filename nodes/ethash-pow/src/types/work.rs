@@ -14,20 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenEthereum.  If not, see <http://www.gnu.org/licenses/>.
 
-use ethereum_types::{H256, U256};
+use sp_core::{U256, H256};
 use serde::{Serialize, Serializer};
 
 
 /// The result of an `eth_getWork` call: it differs based on an option
 /// whether to send the block number.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Work {
     /// The proof-of-work hash.
-    pub pow_hash: H256,
+    pub pow_hash: U256,
     /// The seed hash.
-    pub seed_hash: H256,
+    pub seed_hash: U256,
     /// The target.
-    pub target: H256,
+    pub target: U256,
     /// The block number: this isn't always stored.
     pub number: Option<u64>,
 }
