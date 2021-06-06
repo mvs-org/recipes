@@ -18,7 +18,7 @@ use futures::{
 // use parking_lot::Mutex;
 use runtime::{self, opaque::Block, RuntimeApi};
 use std::sync::Arc;
-use sp_core::{H160, H256, U256};
+use sp_core::{H256, U256};
 use crate::types::work::{Work};
 use crate::helpers::{errors};
 

@@ -5,15 +5,15 @@ use sc_client_api::{ExecutorProvider, RemoteBackend};
 use sc_executor::native_executor_instance;
 pub use sc_executor::NativeExecutor;
 use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
-use sha3pow::*;
 use sp_api::TransactionFor;
 use sp_consensus::import_queue::BasicQueue;
 use sp_inherents::InherentDataProviders;
 use std::{sync::Arc, time::Duration};
 use std::thread;
-use sp_core::{U256, H256, Encode};
+use sp_core::{U256, H256};
 use crate::rpc::{ethash_rpc, EtheminerCmd, error::{Error as RError}};
 use crate::types::{Work};
+use crate::pow;
 use sp_api::ProvideRuntimeApi;
 use sc_consensus_pow::{MiningWorker, MiningMetadata, MiningBuild};
 use sc_consensus_pow::{PowAlgorithm};
@@ -62,7 +62,7 @@ pub fn new_partial(
 			Arc<FullClient>,
 			FullClient,
 			FullSelectChain,
-			MinimalSha3Algorithm,
+			pow::MinimalEthashAlgorithm,
 			impl sp_consensus::CanAuthorWith<Block>,
 		>,
 	>,
@@ -89,7 +89,7 @@ pub fn new_partial(
 	let pow_block_import = sc_consensus_pow::PowBlockImport::new(
 		client.clone(),
 		client.clone(),
-		sha3pow::MinimalSha3Algorithm,
+		pow::MinimalEthashAlgorithm,
 		0, // check inherents starting at block 0
 		select_chain.clone(),
 		inherent_data_providers.clone(),
@@ -99,7 +99,7 @@ pub fn new_partial(
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(pow_block_import.clone()),
 		None,
-		sha3pow::MinimalSha3Algorithm,
+		pow::MinimalEthashAlgorithm,
 		inherent_data_providers.clone(),
 		&task_manager.spawn_handle(),
 		config.prometheus_registry(),
@@ -208,7 +208,7 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 			Box::new(pow_block_import),
 			client.clone(),
 			select_chain,
-			MinimalSha3Algorithm,
+			pow::MinimalEthashAlgorithm,
 			proposer,
 			network.clone(),
 			None,
@@ -256,7 +256,7 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 	let pow_block_import = sc_consensus_pow::PowBlockImport::new(
 		client.clone(),
 		client.clone(),
-		sha3pow::MinimalSha3Algorithm,
+		pow::MinimalEthashAlgorithm,
 		0, // check inherents starting at block 0
 		select_chain,
 		inherent_data_providers.clone(),
@@ -267,7 +267,7 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(pow_block_import),
 		None,
-		sha3pow::MinimalSha3Algorithm,
+		pow::MinimalEthashAlgorithm,
 		inherent_data_providers,
 		&task_manager.spawn_handle(),
 		config.prometheus_registry(),
