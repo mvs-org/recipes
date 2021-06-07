@@ -2,7 +2,7 @@
 use jsonrpc_core::Result;
 use jsonrpc_core::Error;
 use jsonrpc_derive::rpc;
-use crate::rpc::error::{Error as RError}; 
+use crate::rpc::error::{Error as EthError}; 
 use futures::{
 	channel::{mpsc, oneshot},
 	TryFutureExt,
@@ -25,7 +25,7 @@ use crate::helpers::{errors};
 /// Future's type for jsonrpc
 type FutureResult<T> = Box<dyn jsonrpc_core::futures::Future<Item = T, Error = Error> + Send>;
 /// sender passed to the authorship task to report errors or successes.
-pub type Sender<T> = Option<oneshot::Sender<std::result::Result<T, RError>>>;
+pub type Sender<T> = Option<oneshot::Sender<std::result::Result<T, EthError>>>;
 
 /// Message sent to the background authorship task, usually by RPC.
 pub enum EtheminerCmd<Hash> {
@@ -128,7 +128,7 @@ impl<C: Send + Sync + 'static, Hash: Send + 'static> EthashRpc for EthashData<C,
 /// to the rpc
 pub fn send_result<T: std::fmt::Debug>(
 	sender: &mut Sender<T>,
-	result: std::result::Result<T, RError>
+	result: std::result::Result<T, EthError>
 ) {
 	if let Some(sender) = sender.take() {
 		if let Err(err) = sender.send(result) {

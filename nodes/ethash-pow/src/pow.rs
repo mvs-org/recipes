@@ -4,12 +4,14 @@ use sc_consensus_pow::{Error, PowAlgorithm};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_pow::{DifficultyApi, Seal as RawSeal};
 
-//use ethereum_types::{H256, U256};
+use ethereum_types::{self, U256 as EU256, H256 as EH256};
 use sp_core::{U256, H256};
 use sp_runtime::generic::BlockId;
 use sp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
-use ethash::{self, EthashManager};
+use ethash::{self, quick_get_difficulty, slow_hash_block_number, EthashManager};
+use crate::types::{WorkSeal};
+use crate::rpc::{error::{Error as EthError}};
 
 /// Determine whether the given hash satisfies the given difficulty.
 /// The test is done by multiplying the two together. If the product
@@ -66,6 +68,41 @@ impl MinimalEthashAlgorithm {
 		let tempdir = TempDir::new("").unwrap();
 		Self { pow: Arc::new(EthashManager::new(tempdir.path(), None, u64::max_value())), }
 	}
+
+	fn verify_seal(&self, seal: &WorkSeal) -> Result<(), EthError> {
+		let mut tmp:[u8; 32] = seal.pow_hash.into();
+		let pre_hash = EH256::from(tmp);
+		tmp = seal.mix_digest.into();
+		let mix_digest = EH256::from(tmp);
+
+        let result = self.pow.compute_light(
+            seal.header_nr,
+            &pre_hash.0,
+            seal.nonce,
+        );
+        let mix = EH256(result.mix_hash);
+        let difficulty = ethash::boundary_to_difficulty(&EH256(result.value));
+        // debug!(target: "******miner", "num: {num}, seed: {seed}, h: {h}, non: {non}, mix: {mix}, res: {res}",
+		// 	   num = seal.nr,
+		// 	   seed = EH256(slow_hash_block_number(seal.nr)),
+		// 	   h = pre_hash,
+		// 	   non = seal.nonce,
+		// 	   mix = EH256(result.mix_hash),
+		// 	   res = EH256(result.value));
+
+        if mix != mix_digest {
+            return Err(EthError::MismatchedH256SealElement);
+        }
+
+		// tmp = self.difficulty(seal.pow_hash.into()).unwrap().into();
+		// let header_dif = EU256::from(tmp);
+        // if difficulty < header_dif {
+        //     return Err(EthError::InvalidProofOfWork);
+        // }
+
+		//debug!(target: "******miner verified ok");
+        Ok(())
+    }
 }
 
 // Here we implement the general PowAlgorithm trait for our concrete EthashAlgorithm
@@ -74,7 +111,7 @@ impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalEthashAlgorithm {
 
 	fn difficulty(&self, _parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
 		// Fixed difficulty hardcoded here
-		Ok(U256::from(1_000_000))
+		Ok(U256::from(1_000))
 	}
 
 	fn verify(
@@ -86,26 +123,15 @@ impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalEthashAlgorithm {
 		difficulty: Self::Difficulty,
 	) -> Result<bool, Error<B>> {
 		// Try to construct a seal object by decoding the raw seal given
-		let seal = match Seal::decode(&mut &seal[..]) {
+		let seal = match WorkSeal::decode(&mut &seal[..]) {
 			Ok(seal) => seal,
 			Err(_) => return Ok(false),
 		};
 
-		// See whether the hash meets the difficulty requirement. If not, fail fast.
-		if !hash_meets_difficulty(&seal.work, difficulty) {
-			return Ok(false);
-		}
-
-		// Make sure the provided work actually comes from the correct pre_hash
-		let compute = Compute {
-			difficulty,
-			pre_hash: *pre_hash,
-			nonce: seal.nonce,
+		let ret = match self.verify_seal(&seal) {
+			Ok(_) => return Ok(true),
+			Err(_) => return Ok(false),
 		};
-
-		if compute.compute() != seal {
-			return Ok(false);
-		}
 
 		Ok(true)
 	}

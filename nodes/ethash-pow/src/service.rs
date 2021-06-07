@@ -11,7 +11,7 @@ use sp_inherents::InherentDataProviders;
 use std::{sync::Arc, time::Duration};
 use std::thread;
 use sp_core::{U256, H256};
-use crate::rpc::{ethash_rpc, EtheminerCmd, error::{Error as RError}};
+use crate::rpc::{ethash_rpc, EtheminerCmd, error::{Error as EthError}};
 use crate::types::{Work, WorkSeal};
 use crate::pow;
 use sp_api::ProvideRuntimeApi;
@@ -22,7 +22,7 @@ use parking_lot::Mutex;
 use futures::prelude::*;
 use ethash::{self, SeedHashCompute};
 use parity_scale_codec::{Decode, Encode};
-use ethereum_types;
+use ethereum_types::{self, U256 as EU256, H256 as EH256};
 use lazy_static::lazy_static;
 
 // Our native executor instance.
@@ -343,19 +343,26 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 					 });
 
 					ethash_rpc::send_result(&mut sender, ret)
-
 					// ethash_rpc::send_result(&mut sender, future.await)
 				} else {
-					ethash_rpc::send_result(&mut sender, Err(RError::NoWork))
+					ethash_rpc::send_result(&mut sender, Err(EthError::NoWork))
 				}
 			}
-			EtheminerCmd::SubmitWork {  nonce, pow_hash, mix_digest, sender } => {
-				//let seal = vec![rlp::encode(&mix_digest), rlp::encode(&nonce)];
-				let seal = WorkSeal{nonce, pow_hash, mix_digest};
+			EtheminerCmd::SubmitWork {  nonce, pow_hash, mix_digest, mut sender } => {
 				let mut worker = worker.lock();
-				worker.submit(seal.encode());		
+				let metadata = worker.metadata();
+				if let Some(metadata) = metadata {
+					let header_nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(metadata.number);
+					let seal = WorkSeal{nonce, pow_hash, mix_digest, header_nr};
+					worker.submit(seal.encode());
+					ethash_rpc::send_result(&mut sender, Ok(true))
+				} else {
+					ethash_rpc::send_result(&mut sender, Err(EthError::NoMetaData))
+				}
+
+						
 			}
-			EtheminerCmd::SubmitHashrate { hash, sender } => {
+			EtheminerCmd::SubmitHashrate { hash, mut sender } => {
 				
 			}
 		}

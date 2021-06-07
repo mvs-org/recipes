@@ -72,6 +72,13 @@ pub enum Error {
 	/// no work
 	#[display(fmt = "No work now")]
 	NoWork,
+	#[display(fmt = "Metadata not available")]
+	NoMetaData,
+	#[display(fmt = "Mismatched H256 Seal Element")]
+	MismatchedH256SealElement,
+	//#[display(fmt = "Invalid ProofOfWork: expected: {}, found: {}", _0, _1)]
+	#[display(fmt = "Invalid ProofOfWork, Invalid Difficulty")]
+	InvalidProofOfWork,
 	/// Some other error.
 	#[display(fmt="Other error: {}", _0)]
 	Other(Box<dyn std::error::Error + Send>),
