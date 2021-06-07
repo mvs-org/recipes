@@ -12,7 +12,7 @@ use std::{sync::Arc, time::Duration};
 use std::thread;
 use sp_core::{U256, H256};
 use crate::rpc::{ethash_rpc, EtheminerCmd, error::{Error as RError}};
-use crate::types::{Work};
+use crate::types::{Work, WorkSeal};
 use crate::pow;
 use sp_api::ProvideRuntimeApi;
 use sc_consensus_pow::{MiningWorker, MiningMetadata, MiningBuild};
@@ -21,7 +21,9 @@ use sp_runtime::traits::{Block as BlockT, Header as HeaderT, UniqueSaturatedInto
 use parking_lot::Mutex;
 use futures::prelude::*;
 use ethash::{self, SeedHashCompute};
+use parity_scale_codec::{Decode, Encode};
 use ethereum_types;
+use lazy_static::lazy_static;
 
 // Our native executor instance.
 native_executor_instance!(
@@ -43,6 +45,10 @@ pub fn build_inherent_data_providers() -> Result<InherentDataProviders, ServiceE
 		.map_err(sp_consensus::error::Error::InherentData)?;
 
 	Ok(providers)
+}
+
+lazy_static! {
+	static ref ETHASH_ALG: pow::MinimalEthashAlgorithm = pow::MinimalEthashAlgorithm::new();
 }
 
 /// Returns most parts of a service. Not enough to run a full chain,
@@ -85,11 +91,11 @@ pub fn new_partial(
 	);
 
 	let can_author_with = sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
-
+	
 	let pow_block_import = sc_consensus_pow::PowBlockImport::new(
 		client.clone(),
 		client.clone(),
-		pow::MinimalEthashAlgorithm,
+		ETHASH_ALG.clone(),
 		0, // check inherents starting at block 0
 		select_chain.clone(),
 		inherent_data_providers.clone(),
@@ -99,7 +105,7 @@ pub fn new_partial(
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(pow_block_import.clone()),
 		None,
-		pow::MinimalEthashAlgorithm,
+		ETHASH_ALG.clone(),
 		inherent_data_providers.clone(),
 		&task_manager.spawn_handle(),
 		config.prometheus_registry(),
@@ -120,6 +126,7 @@ pub fn new_partial(
 
 /// Builds a new service for a full client.
 pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
+	
 	let sc_service::PartialComponents {
 		client,
 		backend,
@@ -208,7 +215,7 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 			Box::new(pow_block_import),
 			client.clone(),
 			select_chain,
-			pow::MinimalEthashAlgorithm,
+			ETHASH_ALG.clone(),
 			proposer,
 			network.clone(),
 			None,
@@ -256,7 +263,7 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 	let pow_block_import = sc_consensus_pow::PowBlockImport::new(
 		client.clone(),
 		client.clone(),
-		pow::MinimalEthashAlgorithm,
+		ETHASH_ALG.clone(),
 		0, // check inherents starting at block 0
 		select_chain,
 		inherent_data_providers.clone(),
@@ -267,7 +274,7 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(pow_block_import),
 		None,
-		pow::MinimalEthashAlgorithm,
+		ETHASH_ALG.clone(),
 		inherent_data_providers,
 		&task_manager.spawn_handle(),
 		config.prometheus_registry(),
@@ -342,8 +349,11 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 					ethash_rpc::send_result(&mut sender, Err(RError::NoWork))
 				}
 			}
-			EtheminerCmd::SubmitWork { sender } => {
-				
+			EtheminerCmd::SubmitWork {  nonce, pow_hash, mix_digest, sender } => {
+				//let seal = vec![rlp::encode(&mix_digest), rlp::encode(&nonce)];
+				let seal = WorkSeal{nonce, pow_hash, mix_digest};
+				let mut worker = worker.lock();
+				worker.submit(seal.encode());		
 			}
 			EtheminerCmd::SubmitHashrate { hash, sender } => {
 				

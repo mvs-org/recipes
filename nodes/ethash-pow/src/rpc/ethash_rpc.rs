@@ -35,8 +35,12 @@ pub enum EtheminerCmd<Hash> {
 	},
 	/// Tells the engine to finalize the block with the supplied hash
 	SubmitWork {
-		/// hash of the block
-		//hash: Hash,
+		/// The found nonce
+		nonce : u64,
+		/// The proof-of-work hash of header.
+		pow_hash: H256,
+		/// The seed hash.
+		mix_digest: H256,
 		/// sender to report errors/success to the rpc.
 		sender: Sender<bool>,
 	},
@@ -54,7 +58,7 @@ pub trait EthashRpc {
     fn eth_getWork(&self, _: Option<u64>) -> FutureResult<Work>;
 
 	#[rpc(name = "eth_submitWork")]
-	fn eth_submitWork(&self, _: u64, _: H256, _: H256) -> FutureResult<bool>;
+	fn eth_submitWork(&self, nonce: u64, pow_hash: H256, mix_digest: H256) -> FutureResult<bool>;
 
 	#[rpc(name = "eth_hashrate")]
     fn eth_hashrate(&self) -> Result<U256>;
@@ -94,11 +98,14 @@ impl<C: Send + Sync + 'static, Hash: Send + 'static> EthashRpc for EthashData<C,
 		Box::new(future.map_err(Error::from).compat())
 	}
 
-	fn eth_submitWork(&self, _: u64, hash: H256, _: H256) -> FutureResult<bool> {
+	fn eth_submitWork(&self, nonce: u64, pow_hash: H256, mix_digest: H256) -> FutureResult<bool> {
 		let mut sink = self.command_sink.clone();
 		let future = async move {
 			let (sender, receiver) = oneshot::channel();
 			let command = EtheminerCmd::SubmitWork {
+				nonce,
+				pow_hash,
+				mix_digest,
 				sender: Some(sender),
 			};
 			sink.send(command).await?;

@@ -16,7 +16,7 @@
 
 use sp_core::{U256, H256};
 use serde::{Serialize, Serializer};
-
+use parity_scale_codec::{Decode, Encode};
 
 /// The result of an `eth_getWork` call: it differs based on an option
 /// whether to send the block number.
@@ -30,6 +30,16 @@ pub struct Work {
     pub target: U256,
     /// The block number: this isn't always stored.
     pub number: Option<u64>,
+}
+
+#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug)]
+pub struct WorkSeal {
+    /// The found nonce
+    pub nonce : u64,
+    /// The proof-of-work hash of header.
+    pub pow_hash: H256,
+    /// The seed hash.
+    pub mix_digest: H256,
 }
 
 impl Serialize for Work {

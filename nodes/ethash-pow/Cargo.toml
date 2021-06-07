@@ -49,10 +49,12 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 ethereum-types = "0.9.2"
+lazy_static = "1.4.0"
 sc-consensus-pow = { path = "../../consensus/consensus-pow" }
 ethash = { path = "../../consensus/ethash" }
 derive_more = "0.99.2"
 parity-scale-codec = '2.0'
+tempdir = "0.3"
 
 # This node is compatible with any of the runtimes below
 # ---
