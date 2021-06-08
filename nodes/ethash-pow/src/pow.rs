@@ -82,9 +82,9 @@ impl MinimalEthashAlgorithm {
         );
         let mix = EH256(result.mix_hash);
         let difficulty = ethash::boundary_to_difficulty(&EH256(result.value));
-        // debug!(target: "******miner", "num: {num}, seed: {seed}, h: {h}, non: {non}, mix: {mix}, res: {res}",
-		// 	   num = seal.nr,
-		// 	   seed = EH256(slow_hash_block_number(seal.nr)),
+        // println!("******miner", "num: {num}, seed: {seed}, h: {h}, non: {non}, mix: {mix}, res: {res}",
+		// 	   num = seal.header_nr,
+		// 	   seed = EH256(slow_hash_block_number(seal.header_nr)),
 		// 	   h = pre_hash,
 		// 	   non = seal.nonce,
 		// 	   mix = EH256(result.mix_hash),
@@ -100,7 +100,7 @@ impl MinimalEthashAlgorithm {
         //     return Err(EthError::InvalidProofOfWork);
         // }
 
-		//debug!(target: "******miner verified ok");
+		// println!("******miner verified ok");
         Ok(())
     }
 }
@@ -111,7 +111,7 @@ impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalEthashAlgorithm {
 
 	fn difficulty(&self, _parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
 		// Fixed difficulty hardcoded here
-		Ok(U256::from(1_000))
+		Ok(U256::from(1_000_000))
 	}
 
 	fn verify(

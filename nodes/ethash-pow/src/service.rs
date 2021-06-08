@@ -353,7 +353,8 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 				let metadata = worker.metadata();
 				if let Some(metadata) = metadata {
 					let header_nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(metadata.number);
-					let seal = WorkSeal{nonce, pow_hash, mix_digest, header_nr};
+					let non_nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(nonce);
+					let seal = WorkSeal{nonce:non_nr, pow_hash, mix_digest, header_nr};
 					worker.submit(seal.encode());
 					ethash_rpc::send_result(&mut sender, Ok(true))
 				} else {
