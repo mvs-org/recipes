@@ -8,12 +8,12 @@ use sc_service::{error::Error as ServiceError, Configuration, PartialComponents,
 use sp_api::TransactionFor;
 use sp_consensus::import_queue::BasicQueue;
 use sp_inherents::InherentDataProviders;
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 use std::thread;
 use sp_core::{U256, H256};
 use crate::rpc::{ethash_rpc, EtheminerCmd, error::{Error as EthError}};
 use crate::types::{Work, WorkSeal};
-use crate::pow;
+use crate::pow::{MinimalEthashAlgorithm, EthashAlgorithm};
 use sp_api::ProvideRuntimeApi;
 use sc_consensus_pow::{MiningWorker, MiningMetadata, MiningBuild};
 use sc_consensus_pow::{PowAlgorithm};
@@ -47,10 +47,6 @@ pub fn build_inherent_data_providers() -> Result<InherentDataProviders, ServiceE
 	Ok(providers)
 }
 
-lazy_static! {
-	static ref ETHASH_ALG: pow::MinimalEthashAlgorithm = pow::MinimalEthashAlgorithm::new();
-}
-
 /// Returns most parts of a service. Not enough to run a full chain,
 /// But enough to perform chain operations like purge-chain
 #[allow(clippy::type_complexity)]
@@ -68,7 +64,7 @@ pub fn new_partial(
 			Arc<FullClient>,
 			FullClient,
 			FullSelectChain,
-			pow::MinimalEthashAlgorithm,
+			EthashAlgorithm<FullClient>,
 			impl sp_consensus::CanAuthorWith<Block>,
 		>,
 	>,
@@ -91,11 +87,12 @@ pub fn new_partial(
 	);
 
 	let can_author_with = sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
+	let ethash_alg = EthashAlgorithm::new(client.clone());
 	
 	let pow_block_import = sc_consensus_pow::PowBlockImport::new(
 		client.clone(),
 		client.clone(),
-		ETHASH_ALG.clone(),
+		ethash_alg.clone(),
 		0, // check inherents starting at block 0
 		select_chain.clone(),
 		inherent_data_providers.clone(),
@@ -105,7 +102,7 @@ pub fn new_partial(
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(pow_block_import.clone()),
 		None,
-		ETHASH_ALG.clone(),
+		ethash_alg.clone(),
 		inherent_data_providers.clone(),
 		&task_manager.spawn_handle(),
 		config.prometheus_registry(),
@@ -206,6 +203,7 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 
 		let can_author_with =
 			sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
+		let ethash_alg = pow_block_import.algorithm.clone();
 
 		// Parameter details:
 		//   https://substrate.dev/rustdocs/v3.0.0/sc_consensus_pow/fn.start_mining_worker.html
@@ -215,7 +213,7 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 			Box::new(pow_block_import),
 			client.clone(),
 			select_chain,
-			ETHASH_ALG.clone(),
+			ethash_alg,
 			proposer,
 			network.clone(),
 			None,
@@ -259,11 +257,12 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 	let inherent_data_providers = build_inherent_data_providers()?;
 	// FixMe #375
 	let _can_author_with = sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
+	let ethash_alg = EthashAlgorithm::new(client.clone());
 
 	let pow_block_import = sc_consensus_pow::PowBlockImport::new(
 		client.clone(),
 		client.clone(),
-		ETHASH_ALG.clone(),
+		ethash_alg.clone(),
 		0, // check inherents starting at block 0
 		select_chain,
 		inherent_data_providers.clone(),
@@ -274,7 +273,7 @@ pub fn new_light(config: Configuration) -> Result<TaskManager, ServiceError> {
 	let import_queue = sc_consensus_pow::import_queue(
 		Box::new(pow_block_import),
 		None,
-		ETHASH_ALG.clone(),
+		ethash_alg.clone(),
 		inherent_data_providers,
 		&task_manager.spawn_handle(),
 		config.prometheus_registry(),
@@ -332,7 +331,7 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 					let pow_hash:U256 = U256::from(metadata.pre_hash.as_ref());
 					let seed_hash:U256 = seed_compute.hash_block_number(nr).into();
 					let tmp:[u8; 32] = metadata.difficulty.into();
-					let tt = ethash::difficulty_to_boundary(&ethereum_types::U256::from(tmp));
+					let tt = ethash::difficulty_to_boundary(&EU256::from(tmp));
 					let target:U256 = U256::from(tt.as_ref());
 
 					let ret = Ok(Work { 
@@ -352,9 +351,10 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 				let mut worker = worker.lock();
 				let metadata = worker.metadata();
 				if let Some(metadata) = metadata {
-					let header_nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(metadata.number);
 					let non_nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(nonce);
-					let seal = WorkSeal{nonce:non_nr, pow_hash, mix_digest, header_nr};
+					let header_nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(metadata.number);
+					let timestamp :u64 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+					let seal = WorkSeal{nonce:non_nr, pow_hash, mix_digest, difficulty:metadata.difficulty, header_nr, timestamp};
 					worker.submit(seal.encode());
 					ethash_rpc::send_result(&mut sender, Ok(true))
 				} else {

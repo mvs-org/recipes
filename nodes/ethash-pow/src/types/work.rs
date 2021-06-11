@@ -40,8 +40,12 @@ pub struct WorkSeal {
     pub pow_hash: H256,
     /// The seed hash.
     pub mix_digest: H256,
+    /// The difficulty
+    pub difficulty: U256,
     /// The block number
     pub header_nr: u64,
+    /// The timestamp
+    pub timestamp: u64,
 }
 
 impl Serialize for Work {

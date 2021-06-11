@@ -206,7 +206,7 @@ pub trait PowAlgorithm<B: BlockT> {
 
 /// A block importer for PoW.
 pub struct PowBlockImport<B: BlockT, I, C, S, Algorithm, CAW> {
-	algorithm: Algorithm,
+	pub algorithm: Algorithm,
 	inner: I,
 	select_chain: S,
 	client: Arc<C>,
@@ -682,6 +682,7 @@ pub fn start_mining_worker<Block, C, S, Algorithm, E, SO, CAW>(
 				},
 			};
 
+			//println!("******best_hash: {}, pre_hash: {}", best_hash, proposal.block.header().hash());
 			let build = MiningBuild::<Block, Algorithm, C> {
 				metadata: MiningMetadata {
 					best_hash,
@@ -721,7 +722,7 @@ fn find_pre_digest<B: BlockT>(header: &B::Header) -> Result<Option<Vec<u8>>, Err
 }
 
 /// Fetch PoW seal.
-fn fetch_seal<B: BlockT>(
+pub fn fetch_seal<B: BlockT>(
 	digest: Option<&DigestItem<B::Hash>>,
 	hash: B::Hash,
 ) -> Result<Vec<u8>, Error<B>> {

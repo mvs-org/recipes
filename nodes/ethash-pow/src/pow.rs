@@ -3,56 +3,15 @@ use sc_consensus_pow::{Error, PowAlgorithm};
 
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_pow::{DifficultyApi, Seal as RawSeal};
-
+use sp_blockchain::HeaderBackend;
 use ethereum_types::{self, U256 as EU256, H256 as EH256};
 use sp_core::{U256, H256};
 use sp_runtime::generic::BlockId;
-use sp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT, UniqueSaturatedInto};
 use std::sync::Arc;
 use ethash::{self, quick_get_difficulty, slow_hash_block_number, EthashManager};
 use crate::types::{WorkSeal};
 use crate::rpc::{error::{Error as EthError}};
-
-/// Determine whether the given hash satisfies the given difficulty.
-/// The test is done by multiplying the two together. If the product
-/// overflows the bounds of U256, then the product (and thus the hash)
-/// was too high.
-pub fn hash_meets_difficulty(hash: &H256, difficulty: U256) -> bool {
-	let num_hash = U256::from(&hash[..]);
-	let (_, overflowed) = num_hash.overflowing_mul(difficulty);
-
-	!overflowed
-}
-
-/// A Seal struct that will be encoded to a Vec<u8> as used as the
-/// `RawSeal` type.
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug)]
-pub struct Seal {
-	pub difficulty: U256,
-	pub work: H256,
-	pub nonce: U256,
-}
-
-/// A not-yet-computed attempt to solve the proof of work. Calling the
-/// compute method will compute the hash and return the seal.
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug)]
-pub struct Compute {
-	pub difficulty: U256,
-	pub pre_hash: H256,
-	pub nonce: U256,
-}
-
-impl Compute {
-	pub fn compute(self) -> Seal {
-		let work = H256::from_slice(&self.encode()[..]);
-
-		Seal {
-			nonce: self.nonce,
-			difficulty: self.difficulty,
-			work,
-		}
-	}
-}
 
 /// A minimal PoW algorithm that uses Sha3 hashing.
 /// Difficulty is fixed at 1_000_000
@@ -128,8 +87,8 @@ impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalEthashAlgorithm {
 			Err(_) => return Ok(false),
 		};
 
-		let ret = match self.verify_seal(&seal) {
-			Ok(_) => return Ok(true),
+		match self.verify_seal(&seal) {
+			Ok(_) => {},
 			Err(_) => return Ok(false),
 		};
 
@@ -141,12 +100,52 @@ impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalEthashAlgorithm {
 /// Needs a reference to the client so it can grab the difficulty from the runtime.
 pub struct EthashAlgorithm<C> {
 	client: Arc<C>,
+	pow: Arc<EthashManager>,
+	min_difficulty: U256,
 }
 
 impl<C> EthashAlgorithm<C> {
 	pub fn new(client: Arc<C>) -> Self {
-		Self { client }
+		use tempdir::TempDir;
+
+		let tempdir = TempDir::new("").unwrap();
+		Self { client, pow: Arc::new(EthashManager::new(tempdir.path(), None, u64::max_value())), min_difficulty: U256::from(1_000_000)}
 	}
+
+	fn verify_seal(&self, seal: &WorkSeal) -> Result<(), EthError> {
+		let mut tmp:[u8; 32] = seal.pow_hash.into();
+		let pre_hash = EH256::from(tmp);
+		tmp = seal.mix_digest.into();
+		let mix_digest = EH256::from(tmp);
+
+        let result = self.pow.compute_light(
+            seal.header_nr,
+            &pre_hash.0,
+            seal.nonce,
+        );
+        let mix = EH256(result.mix_hash);
+        let difficulty = ethash::boundary_to_difficulty(&EH256(result.value));
+        // println!("******miner", "num: {num}, seed: {seed}, h: {h}, non: {non}, mix: {mix}, res: {res}",
+		// 	   num = seal.header_nr,
+		// 	   seed = EH256(slow_hash_block_number(seal.header_nr)),
+		// 	   h = pre_hash,
+		// 	   non = seal.nonce,
+		// 	   mix = EH256(result.mix_hash),
+		// 	   res = EH256(result.value));
+
+        if mix != mix_digest {
+            return Err(EthError::MismatchedH256SealElement);
+        }
+
+		// tmp = self.difficulty(seal.pow_hash.into()).unwrap().into();
+		// let header_dif = EU256::from(tmp);
+        // if difficulty < header_dif {
+        //     return Err(EthError::InvalidProofOfWork);
+        // }
+
+		// println!("******miner verified ok");
+        Ok(())
+    }
 }
 
 // Manually implement clone. Deriving doesn't work because
@@ -160,22 +159,40 @@ impl<C> Clone for EthashAlgorithm<C> {
 // Here we implement the general PowAlgorithm trait for our concrete EthashAlgorithm
 impl<B: BlockT<Hash = H256>, C> PowAlgorithm<B> for EthashAlgorithm<C>
 where
-	C: ProvideRuntimeApi<B>,
-	C::Api: DifficultyApi<B, U256>,
+	C: HeaderBackend<B> + ProvideRuntimeApi<B>,
 {
 	type Difficulty = U256;
 
 	fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
 		let parent_id = BlockId::<B>::hash(parent);
-		self.client
-			.runtime_api()
-			.difficulty(&parent_id)
-			.map_err(|err| {
-				sc_consensus_pow::Error::Environment(format!(
-					"Fetching difficulty from runtime failed: {:?}",
-					err
-				))
-			})
+		let parent_header = self.client.header(parent_id)
+				.expect("header get error")
+				.expect("there should be header");
+
+		let seal = match sc_consensus_pow::fetch_seal::<B>(
+				parent_header.digest().logs.last(),
+				parent,
+			) {
+			Ok(seal) => seal,
+			Err(err) => {
+				let number = parent_header.number();
+				let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(*number);
+				if nr == 0 { //:NOTICE: genesis block doesn't have seal
+					return Ok(self.min_difficulty);
+				} else {
+					return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
+				}
+			},
+		};
+		let seal = match WorkSeal::decode(&mut &seal[..]) {
+			Ok(seal) => seal,
+			Err(err) => {
+				return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
+			},
+		};
+
+		// parent header difficulty
+		Ok(seal.difficulty)
 	}
 
 	fn verify(
@@ -187,26 +204,15 @@ where
 		difficulty: Self::Difficulty,
 	) -> Result<bool, Error<B>> {
 		// Try to construct a seal object by decoding the raw seal given
-		let seal = match Seal::decode(&mut &seal[..]) {
+		let seal = match WorkSeal::decode(&mut &seal[..]) {
 			Ok(seal) => seal,
 			Err(_) => return Ok(false),
 		};
 
-		// See whether the hash meets the difficulty requirement. If not, fail fast.
-		if !hash_meets_difficulty(&seal.work, difficulty) {
-			return Ok(false);
-		}
-
-		// Make sure the provided work actually comes from the correct pre_hash
-		let compute = Compute {
-			difficulty,
-			pre_hash: *pre_hash,
-			nonce: seal.nonce,
+		match self.verify_seal(&seal) {
+			Ok(_) => {},
+			Err(_) => return Ok(false),
 		};
-
-		if compute.compute() != seal {
-			return Ok(false);
-		}
 
 		Ok(true)
 	}
