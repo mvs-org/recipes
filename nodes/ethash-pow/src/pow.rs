@@ -8,7 +8,7 @@ use ethereum_types::{self, U256 as EU256, H256 as EH256};
 use sp_core::{U256, H256};
 use sp_runtime::generic::BlockId;
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT, UniqueSaturatedInto};
-use std::sync::Arc;
+use std::{cmp, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 use ethash::{self, quick_get_difficulty, slow_hash_block_number, EthashManager};
 use crate::types::{WorkSeal};
 use crate::rpc::{error::{Error as EthError}};
@@ -73,6 +73,11 @@ impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalEthashAlgorithm {
 		Ok(U256::from(1_000_000))
 	}
 
+	fn calc_difficulty(&self, _parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
+		// Fixed difficulty hardcoded here
+		Ok(U256::from(1_000_000))
+	}
+
 	fn verify(
 		&self,
 		_parent: &BlockId<B>,
@@ -101,7 +106,10 @@ impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalEthashAlgorithm {
 pub struct EthashAlgorithm<C> {
 	client: Arc<C>,
 	pow: Arc<EthashManager>,
-	min_difficulty: U256,
+	minimum_difficulty: U256,
+	difficulty_bound_divisor: U256,
+	difficulty_increment_divisor: u64,
+	duration_limit: u64,
 }
 
 impl<C> EthashAlgorithm<C> {
@@ -109,7 +117,14 @@ impl<C> EthashAlgorithm<C> {
 		use tempdir::TempDir;
 
 		let tempdir = TempDir::new("").unwrap();
-		Self { client, pow: Arc::new(EthashManager::new(tempdir.path(), None, u64::max_value())), min_difficulty: U256::from(1_000_000)}
+		Self { 
+			client, 
+			pow: Arc::new(EthashManager::new(tempdir.path(), None, u64::max_value())), 
+			minimum_difficulty: U256::from(1_000_000),
+			difficulty_bound_divisor: U256::from(2048),
+            difficulty_increment_divisor: 10,
+			duration_limit: 13,
+		}
 	}
 
 	fn verify_seal(&self, seal: &WorkSeal) -> Result<(), EthError> {
@@ -165,9 +180,17 @@ where
 
 	fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
 		let parent_id = BlockId::<B>::hash(parent);
-		let parent_header = self.client.header(parent_id)
-				.expect("header get error")
-				.expect("there should be header");
+		let parent_header = match self.client.header(parent_id) {
+			Ok(header) => match header {
+				Some(parent_header) => parent_header,
+				None => {
+					return Err(sc_consensus_pow::Error::Other(format!("there should be header")));
+				},
+			},
+			Err(err) => {
+				return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
+			},
+		};
 
 		let seal = match sc_consensus_pow::fetch_seal::<B>(
 				parent_header.digest().logs.last(),
@@ -175,10 +198,9 @@ where
 			) {
 			Ok(seal) => seal,
 			Err(err) => {
-				let number = parent_header.number();
-				let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(*number);
-				if nr == 0 { //:NOTICE: genesis block doesn't have seal
-					return Ok(self.min_difficulty);
+				let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(*parent_header.number());
+				if nr == 0 { //:NOTICE: use minimum_difficulty in genesis block 
+					return Ok(self.minimum_difficulty);
 				} else {
 					return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
 				}
@@ -193,6 +215,57 @@ where
 
 		// parent header difficulty
 		Ok(seal.difficulty)
+	}
+
+	fn calc_difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
+		let parent_id = BlockId::<B>::hash(parent);
+		let parent_header = match self.client.header(parent_id) {
+			Ok(header) => match header {
+				Some(parent_header) => parent_header,
+				None => {
+					return Err(sc_consensus_pow::Error::Other(format!("there should be header")));
+				},
+			},
+			Err(err) => {
+				return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
+			},
+		};
+
+		let seal = match sc_consensus_pow::fetch_seal::<B>(
+				parent_header.digest().logs.last(),
+				parent,
+			) {
+			Ok(seal) => seal,
+			Err(err) => {
+				let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(*parent_header.number());
+				if nr == 0 { //:NOTICE: use minimum_difficulty in genesis block 
+					return Ok(self.minimum_difficulty);
+				} else {
+					return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
+				}
+			},
+		};
+		let parent_seal = match WorkSeal::decode(&mut &seal[..]) {
+			Ok(seal) => seal,
+			Err(err) => {
+				return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
+			},
+		};
+
+		let min_difficulty = self.minimum_difficulty;
+		let difficulty_bound_divisor = self.difficulty_bound_divisor;
+		let duration_limit = self.duration_limit;
+		let now :u64 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+        let mut target = if now >= parent_seal.timestamp + duration_limit {
+			parent_seal.difficulty - (parent_seal.difficulty / difficulty_bound_divisor)
+		} else {
+			parent_seal.difficulty + (parent_seal.difficulty / difficulty_bound_divisor)
+		};
+		target = cmp::max(min_difficulty, target);
+
+		// parent header difficulty
+		Ok(target)
 	}
 
 	fn verify(

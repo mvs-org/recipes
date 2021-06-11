@@ -165,11 +165,15 @@ pub trait PowAlgorithm<B: BlockT> {
 	/// Difficulty for the algorithm.
 	type Difficulty: TotalDifficulty + Default + Encode + Decode + Ord + Clone + Copy + 'static ;
 
-	/// Get the next block's difficulty.
+	/// Get the parent block's difficulty.
 	///
 	/// This function will be called twice during the import process, so the implementation
 	/// should be properly cached.
 	fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>>;
+
+	/// Get the next block's difficulty.
+	fn calc_difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>>;
+
 	/// Verify that the seal is valid against given pre hash when parent block is not yet imported.
 	///
 	/// None means that preliminary verify is not available for this algorithm.
@@ -617,13 +621,13 @@ pub fn start_mining_worker<Block, C, S, Algorithm, E, SO, CAW>(
 		// The worker is locked for the duration of the whole proposing period. Within this period,
 		// the mining target is outdated and useless anyway.
 
-		let difficulty = match algorithm.difficulty(best_hash) {
+		let difficulty = match algorithm.calc_difficulty(best_hash) {
 			Ok(x) => x,
 			Err(err) => {
 				warn!(
 					target: "pow",
 					"Unable to propose new block for authoring. \
-					 Fetch difficulty failed: {:?}",
+					 Calculate difficulty failed: {:?}",
 					err,
 				);
 				return Either::Left(future::ready(()))
