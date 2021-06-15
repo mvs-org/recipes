@@ -80,8 +80,7 @@ pub enum Error {
 	#[display(fmt = "Invalid ProofOfWork, Invalid Difficulty")]
 	InvalidProofOfWork,
 	/// Some other error.
-	#[display(fmt="Other error: {}", _0)]
-	Other(Box<dyn std::error::Error + Send>),
+	Other(String),
 }
 
 impl Error {

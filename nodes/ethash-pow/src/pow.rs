@@ -178,11 +178,10 @@ where
 {
 	type Difficulty = U256;
 
-	fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
-		let parent_id = BlockId::<B>::hash(parent);
-		let parent_header = match self.client.header(parent_id) {
+	fn difficulty(&self, hash: B::Hash) -> Result<Self::Difficulty, Error<B>> {
+		let header = match self.client.header(BlockId::<B>::hash(hash)) {
 			Ok(header) => match header {
-				Some(parent_header) => parent_header,
+				Some(header) => header,
 				None => {
 					return Err(sc_consensus_pow::Error::Other(format!("there should be header")));
 				},
@@ -193,12 +192,12 @@ where
 		};
 
 		let seal = match sc_consensus_pow::fetch_seal::<B>(
-				parent_header.digest().logs.last(),
-				parent,
+				header.digest().logs.last(),
+				hash,
 			) {
 			Ok(seal) => seal,
 			Err(err) => {
-				let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(*parent_header.number());
+				let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(*header.number());
 				if nr == 0 { //:NOTICE: use minimum_difficulty in genesis block 
 					return Ok(self.minimum_difficulty);
 				} else {
@@ -213,17 +212,17 @@ where
 			},
 		};
 
-		// parent header difficulty
+		// header difficulty
 		Ok(seal.difficulty)
 	}
 
 	fn calc_difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
-		let parent_id = BlockId::<B>::hash(parent);
-		let parent_header = match self.client.header(parent_id) {
+		let parent_header = match self.client.header(BlockId::<B>::hash(parent)) {
 			Ok(header) => match header {
-				Some(parent_header) => parent_header,
+				Some(header) => header,
 				None => {
-					return Err(sc_consensus_pow::Error::Other(format!("there should be header")));
+					//:NOTICE: This should be the genesis header, use minimum_difficulty
+					return Ok(self.minimum_difficulty);
 				},
 			},
 			Err(err) => {
@@ -263,7 +262,7 @@ where
 			parent_seal.difficulty + (parent_seal.difficulty / difficulty_bound_divisor)
 		};
 		target = cmp::max(min_difficulty, target);
-
+		
 		// parent header difficulty
 		Ok(target)
 	}

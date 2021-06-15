@@ -621,7 +621,7 @@ pub fn start_mining_worker<Block, C, S, Algorithm, E, SO, CAW>(
 		// The worker is locked for the duration of the whole proposing period. Within this period,
 		// the mining target is outdated and useless anyway.
 
-		let difficulty = match algorithm.calc_difficulty(best_hash) {
+		let difficulty = match algorithm.calc_difficulty(*best_header.parent_hash()) {
 			Ok(x) => x,
 			Err(err) => {
 				warn!(
