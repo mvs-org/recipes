@@ -19,15 +19,11 @@
 //! A manual sealing engine: the engine listens for rpc calls to seal blocks and create forks.
 //! This is suitable for a testing environment.
 
-use sp_consensus::{Error as ConsensusError, ImportResult};
-use sp_blockchain::Error as BlockchainError;
-use sp_inherents::Error as InherentsError;
-use futures::channel::{oneshot, mpsc::SendError};
 
 /// Error code for rpc
 mod codes {
-	pub const SERVER_SHUTTING_DOWN: i64 = 10_000;
-	pub const BLOCK_IMPORT_FAILED: i64 = 11_000;
+	pub const MISMATCHED_H256_SEAL: i64 = 10_000;
+	pub const INVALID_POW: i64 = 11_000;
 	pub const EMPTY_TRANSACTION_POOL: i64 = 12_000;
 	pub const BLOCK_NOT_FOUND: i64 = 13_000;
 	pub const CONSENSUS_ERROR: i64 = 14_000;
@@ -39,48 +35,15 @@ mod codes {
 /// errors encountered by background block authorship task
 #[derive(Debug, derive_more::Display, derive_more::From)]
 pub enum Error {
-	/// An error occurred while importing the block
-	#[display(fmt = "Block import failed: {:?}", _0)]
-	BlockImportError(ImportResult),
 	/// Transaction pool is empty, cannot create a block
 	#[display(fmt = "Transaction pool is empty, set create_empty to true,\
 	if you want to create empty blocks")]
 	EmptyTransactionPool,
-	/// encountered during creation of Proposer.
-	#[display(fmt = "Consensus Error: {}", _0)]
-	ConsensusError(ConsensusError),
-	/// Failed to create Inherents data
-	#[display(fmt = "Inherents Error: {}", _0)]
-	InherentError(InherentsError),
-	/// error encountered during finalization
-	#[display(fmt = "Finalization Error: {}", _0)]
-	BlockchainError(BlockchainError),
-	/// Supplied parent_hash doesn't exist in chain
-	#[display(fmt = "Supplied parent_hash: {} doesn't exist in chain", _0)]
-	#[from(ignore)]
-	BlockNotFound(String),
-	/// Some string error
-	#[display(fmt = "{}", _0)]
-	#[from(ignore)]
-	StringError(String),
-	///send error
-	#[display(fmt = "Consensus process is terminating")]
-	Canceled(oneshot::Canceled),
-	///send error
-	#[display(fmt = "Consensus process is terminating")]
-	SendError(SendError),
-	/// no work
-	#[display(fmt = "No work now")]
-	NoWork,
-	#[display(fmt = "Metadata not available")]
-	NoMetaData,
 	#[display(fmt = "Mismatched H256 Seal Element")]
 	MismatchedH256SealElement,
 	//#[display(fmt = "Invalid ProofOfWork: expected: {}, found: {}", _0, _1)]
 	#[display(fmt = "Invalid ProofOfWork, Invalid Difficulty")]
 	InvalidProofOfWork,
-	#[display(fmt = "Unimplemented")]
-	Unimplemented,
 	/// Some other error.
 	Other(String),
 }
@@ -89,24 +52,15 @@ impl Error {
 	fn to_code(&self) -> i64 {
 		use Error::*;
 		match self {
-			BlockImportError(_) => codes::BLOCK_IMPORT_FAILED,
-			BlockNotFound(_) => codes::BLOCK_NOT_FOUND,
+			MismatchedH256SealElement => codes::MISMATCHED_H256_SEAL,
+			InvalidProofOfWork => codes::BLOCK_NOT_FOUND,
 			EmptyTransactionPool => codes::EMPTY_TRANSACTION_POOL,
-			ConsensusError(_) => codes::CONSENSUS_ERROR,
-			InherentError(_) => codes::INHERENTS_ERROR,
-			BlockchainError(_) => codes::BLOCKCHAIN_ERROR,
-			SendError(_) | Canceled(_) => codes::SERVER_SHUTTING_DOWN,
+			// ConsensusError(_) => codes::CONSENSUS_ERROR,
+			// InherentError(_) => codes::INHERENTS_ERROR,
+			// BlockchainError(_) => codes::BLOCKCHAIN_ERROR,
+			// SendError(_) | Canceled(_) => codes::SERVER_SHUTTING_DOWN,
 			_ => codes::UNKNOWN_ERROR
 		}
 	}
 }
 
-impl std::convert::From<Error> for jsonrpc_core::Error {
-	fn from(error: Error) -> Self {
-		jsonrpc_core::Error {
-			code: jsonrpc_core::ErrorCode::ServerError(error.to_code()),
-			message: format!("{}", error),
-			data: None
-		}
-	}
-}

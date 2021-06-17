@@ -32,22 +32,6 @@ pub struct Work {
     pub number: Option<u64>,
 }
 
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug)]
-pub struct WorkSeal {
-    /// The found nonce
-    pub nonce : u64,
-    /// The proof-of-work hash of header.
-    pub pow_hash: H256,
-    /// The seed hash.
-    pub mix_digest: H256,
-    /// The difficulty
-    pub difficulty: U256,
-    /// The block number
-    pub header_nr: u64,
-    /// The timestamp
-    pub timestamp: u64,
-}
-
 impl Serialize for Work {
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where

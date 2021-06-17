@@ -1426,11 +1426,11 @@ dependencies = [
  "derive_more",
  "ethash",
  "ethereum-types",
+ "ethpow",
  "futures 0.3.13",
  "jsonrpc-core",
  "jsonrpc-core-client",
  "jsonrpc-derive",
- "lazy_static",
  "log",
  "parity-scale-codec 2.0.1",
  "parking_lot 0.11.1",
@@ -1493,6 +1493,27 @@ dependencies = [
  "impl-serde",
  "primitive-types 0.7.3",
  "uint 0.8.5",
+]
+
+[[package]]
+name = "ethpow"
+version = "1.0.0"
+dependencies = [
+ "derive_more",
+ "ethash",
+ "ethereum-types",
+ "log",
+ "parity-scale-codec 2.0.1",
+ "sc-consensus-pow",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sp-api",
+ "sp-blockchain",
+ "sp-consensus-pow",
+ "sp-core",
+ "sp-runtime",
+ "tempdir",
 ]
 
 [[package]]

@@ -10,9 +10,27 @@ use sp_runtime::generic::BlockId;
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT, UniqueSaturatedInto};
 use std::{cmp, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 use ethash::{self, quick_get_difficulty, slow_hash_block_number, EthashManager};
-use crate::types::{WorkSeal};
-use crate::rpc::{error::{Error as EthError}};
 use log::{error, info, debug, trace, warn};
+
+mod error;
+use error::{Error as EthError};
+
+
+#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug)]
+pub struct WorkSeal {
+    /// The found nonce
+    pub nonce : u64,
+    /// The proof-of-work hash of header.
+    pub pow_hash: H256,
+    /// The seed hash.
+    pub mix_digest: H256,
+    /// The difficulty
+    pub difficulty: U256,
+    /// The block number
+    pub header_nr: u64,
+    /// The timestamp
+    pub timestamp: u64,
+}
 
 /// A minimal PoW algorithm that uses Sha3 hashing.
 /// Difficulty is fixed at 1_000_000
@@ -260,9 +278,11 @@ where
 			seal.difficulty + (seal.difficulty / difficulty_bound_divisor)
 		};
 		target = cmp::max(min_difficulty, target);
-		debug!(target:"pow", "duration: {}, pTime: {}, cTime: {}, old_dif: {}, new_dif: {}", 
+		// debug!(target:"pow", "duration: {}, pTime: {}, cTime: {}, old_dif: {}, new_dif: {}", 
+		// 	seal.timestamp-parent_seal.timestamp, parent_seal.timestamp, seal.timestamp, seal.difficulty, target);
+		println!("******duration: {}, pTime: {}, cTime: {}, old_dif: {}, new_dif: {}", 
 			seal.timestamp-parent_seal.timestamp, parent_seal.timestamp, seal.timestamp, seal.difficulty, target);
-
+			
 		// parent header difficulty
 		Ok(target)
 	}

@@ -11,9 +11,9 @@ use sp_inherents::InherentDataProviders;
 use std::{sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 use std::thread;
 use sp_core::{U256, H256};
-use crate::rpc::{ethash_rpc, EtheminerCmd, error::{Error as EthError}};
-use crate::types::{Work, WorkSeal};
-use crate::pow::{MinimalEthashAlgorithm, EthashAlgorithm};
+use crate::rpc::{ethash_rpc, EtheminerCmd, error::{Error as RpcError}};
+use crate::types::{Work};
+use ethpow::{MinimalEthashAlgorithm, EthashAlgorithm, WorkSeal};
 use sp_api::ProvideRuntimeApi;
 use sc_consensus_pow::{MiningWorker, MiningMetadata, MiningBuild};
 use sc_consensus_pow::{PowAlgorithm};
@@ -344,7 +344,7 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 					ethash_rpc::send_result(&mut sender, ret)
 					// ethash_rpc::send_result(&mut sender, future.await)
 				} else {
-					ethash_rpc::send_result(&mut sender, Err(EthError::NoWork))
+					ethash_rpc::send_result(&mut sender, Err(RpcError::NoWork))
 				}
 			}
 			EtheminerCmd::SubmitWork {  nonce, pow_hash, mix_digest, mut sender } => {
@@ -359,7 +359,7 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 					worker.submit(seal.encode());
 					ethash_rpc::send_result(&mut sender, Ok(true))
 				} else {
-					ethash_rpc::send_result(&mut sender, Err(EthError::NoMetaData))
+					ethash_rpc::send_result(&mut sender, Err(RpcError::NoMetaData))
 				}
 
 						

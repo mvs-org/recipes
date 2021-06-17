@@ -2,4 +2,4 @@
 
 pub mod work;
 
-pub use self::work::{Work, WorkSeal};
+pub use self::work::{Work};

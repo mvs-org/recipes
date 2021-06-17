@@ -2,7 +2,7 @@
 use jsonrpc_core::Result;
 use jsonrpc_core::Error;
 use jsonrpc_derive::rpc;
-use crate::rpc::error::{Error as EthError}; 
+use crate::rpc::error::{Error as RpcError}; 
 use futures::{
 	channel::{mpsc, oneshot},
 	TryFutureExt,
@@ -20,12 +20,11 @@ use runtime::{self, opaque::Block, RuntimeApi};
 use std::sync::Arc;
 use sp_core::{H256, U256};
 use crate::types::work::{Work};
-use crate::helpers::{errors};
 
 /// Future's type for jsonrpc
 type FutureResult<T> = Box<dyn jsonrpc_core::futures::Future<Item = T, Error = Error> + Send>;
 /// sender passed to the authorship task to report errors or successes.
-pub type Sender<T> = Option<oneshot::Sender<std::result::Result<T, EthError>>>;
+pub type Sender<T> = Option<oneshot::Sender<std::result::Result<T, RpcError>>>;
 
 /// Message sent to the background authorship task, usually by RPC.
 pub enum EtheminerCmd<Hash> {
@@ -117,7 +116,8 @@ impl<C: Send + Sync + 'static, Hash: Send + 'static> EthashRpc for EthashData<C,
 
 	fn eth_hashrate(&self) -> Result<U256> {
 		//Ok(default())
-		Err(errors::unimplemented(None))
+		//Err(errors::unimplemented(None))
+		Err(Error::from(RpcError::Unimplemented))
 	}
 
 	fn eth_submitHashrate(&self, _: U256, _: H256) -> Result<bool> {
@@ -129,7 +129,7 @@ impl<C: Send + Sync + 'static, Hash: Send + 'static> EthashRpc for EthashData<C,
 /// to the rpc
 pub fn send_result<T: std::fmt::Debug>(
 	sender: &mut Sender<T>,
-	result: std::result::Result<T, EthError>
+	result: std::result::Result<T, RpcError>
 ) {
 	if let Some(sender) = sender.take() {
 		if let Err(err) = sender.send(result) {
