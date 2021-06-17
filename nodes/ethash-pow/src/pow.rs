@@ -12,6 +12,7 @@ use std::{cmp, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 use ethash::{self, quick_get_difficulty, slow_hash_block_number, EthashManager};
 use crate::types::{WorkSeal};
 use crate::rpc::{error::{Error as EthError}};
+use log::{error, info, debug, trace, warn};
 
 /// A minimal PoW algorithm that uses Sha3 hashing.
 /// Difficulty is fixed at 1_000_000
@@ -40,26 +41,24 @@ impl MinimalEthashAlgorithm {
             seal.nonce,
         );
         let mix = EH256(result.mix_hash);
-        let difficulty = ethash::boundary_to_difficulty(&EH256(result.value));
-        // println!("******miner", "num: {num}, seed: {seed}, h: {h}, non: {non}, mix: {mix}, res: {res}",
-		// 	   num = seal.header_nr,
-		// 	   seed = EH256(slow_hash_block_number(seal.header_nr)),
-		// 	   h = pre_hash,
-		// 	   non = seal.nonce,
-		// 	   mix = EH256(result.mix_hash),
-		// 	   res = EH256(result.value));
+		tmp = ethash::boundary_to_difficulty(&EH256(result.value)).into();
+		let difficulty = U256::from(tmp);
+        trace!(target:"pow", "num: {num}, seed: {seed}, h: {h}, non: {non}, mix: {mix}, res: {res}",
+			   num = seal.header_nr,
+			   seed = EH256(slow_hash_block_number(seal.header_nr)),
+			   h = pre_hash,
+			   non = seal.nonce,
+			   mix = EH256(result.mix_hash),
+			   res = EH256(result.value));
 
-        if mix != mix_digest {
+		if mix != mix_digest {
             return Err(EthError::MismatchedH256SealElement);
         }
+        if difficulty < seal.difficulty {
+            return Err(EthError::InvalidProofOfWork);
+        }
 
-		// tmp = self.difficulty(seal.pow_hash.into()).unwrap().into();
-		// let header_dif = EU256::from(tmp);
-        // if difficulty < header_dif {
-        //     return Err(EthError::InvalidProofOfWork);
-        // }
-
-		// println!("******miner verified ok");
+		trace!(target:"pow", "miner verified ok");
         Ok(())
     }
 }
@@ -73,7 +72,7 @@ impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalEthashAlgorithm {
 		Ok(U256::from(1_000_000))
 	}
 
-	fn calc_difficulty(&self, _parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
+	fn calc_difficulty(&self, _parent: B::Hash, _cur: B::Hash) -> Result<Self::Difficulty, Error<B>> {
 		// Fixed difficulty hardcoded here
 		Ok(U256::from(1_000_000))
 	}
@@ -110,6 +109,7 @@ pub struct EthashAlgorithm<C> {
 	difficulty_bound_divisor: U256,
 	difficulty_increment_divisor: u64,
 	duration_limit: u64,
+	progpow: bool,
 }
 
 impl<C> EthashAlgorithm<C> {
@@ -124,6 +124,7 @@ impl<C> EthashAlgorithm<C> {
 			difficulty_bound_divisor: U256::from(2048),
             difficulty_increment_divisor: 10,
 			duration_limit: 13,
+			progpow: false,
 		}
 	}
 
@@ -139,26 +140,26 @@ impl<C> EthashAlgorithm<C> {
             seal.nonce,
         );
         let mix = EH256(result.mix_hash);
-        let difficulty = ethash::boundary_to_difficulty(&EH256(result.value));
-        // println!("******miner", "num: {num}, seed: {seed}, h: {h}, non: {non}, mix: {mix}, res: {res}",
-		// 	   num = seal.header_nr,
-		// 	   seed = EH256(slow_hash_block_number(seal.header_nr)),
-		// 	   h = pre_hash,
-		// 	   non = seal.nonce,
-		// 	   mix = EH256(result.mix_hash),
-		// 	   res = EH256(result.value));
+		tmp = ethash::boundary_to_difficulty(&EH256(result.value)).into();
+		let difficulty = U256::from(tmp);
+        trace!(target:"pow", "num: {num}, seed: {seed}, h: {h}, non: {non}, mix: {mix}, res: {res}",
+			   num = seal.header_nr,
+			   seed = EH256(slow_hash_block_number(seal.header_nr)),
+			   h = pre_hash,
+			   non = seal.nonce,
+			   mix = EH256(result.mix_hash),
+			   res = EH256(result.value));
 
-        if mix != mix_digest {
+		if mix != mix_digest {
+			debug!(target:"pow", "verify_seal EthError::MismatchedH256SealElement");
             return Err(EthError::MismatchedH256SealElement);
         }
+        if difficulty < seal.difficulty {
+			debug!(target:"pow", "verify_seal EthError::InvalidProofOfWork");
+            return Err(EthError::InvalidProofOfWork);
+        }
 
-		// tmp = self.difficulty(seal.pow_hash.into()).unwrap().into();
-		// let header_dif = EU256::from(tmp);
-        // if difficulty < header_dif {
-        //     return Err(EthError::InvalidProofOfWork);
-        // }
-
-		// println!("******miner verified ok");
+		trace!(target:"pow", "miner verified ok");
         Ok(())
     }
 }
@@ -179,90 +180,89 @@ where
 	type Difficulty = U256;
 
 	fn difficulty(&self, hash: B::Hash) -> Result<Self::Difficulty, Error<B>> {
-		let header = match self.client.header(BlockId::<B>::hash(hash)) {
-			Ok(header) => match header {
-				Some(header) => header,
-				None => {
-					return Err(sc_consensus_pow::Error::Other(format!("there should be header")));
-				},
-			},
-			Err(err) => {
-				return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
-			},
-		};
-
-		let seal = match sc_consensus_pow::fetch_seal::<B>(
+		let header = self.client.header(BlockId::<B>::hash(hash)).map_err(|err| {
+				sc_consensus_pow::Error::Other(format!("{:?}", err))
+			})?.ok_or_else(|| {
+				sc_consensus_pow::Error::Other(format!("there should be header"))
+			})?;
+		let raw_seal = match sc_consensus_pow::fetch_seal::<B>(
 				header.digest().logs.last(),
 				hash,
 			) {
 			Ok(seal) => seal,
 			Err(err) => {
 				let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(*header.number());
-				if nr == 0 { //:NOTICE: use minimum_difficulty in genesis block 
+				if nr == 0 { //:NOTICE: This should be the genesis header, use minimum_difficulty
 					return Ok(self.minimum_difficulty);
 				} else {
 					return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
 				}
 			},
 		};
-		let seal = match WorkSeal::decode(&mut &seal[..]) {
-			Ok(seal) => seal,
-			Err(err) => {
-				return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
-			},
-		};
+		let seal = WorkSeal::decode(&mut &raw_seal[..]).map_err(|err| {
+				sc_consensus_pow::Error::Other(format!("{:?}", err))
+			})?;
 
 		// header difficulty
 		Ok(seal.difficulty)
 	}
 
-	fn calc_difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
-		let parent_header = match self.client.header(BlockId::<B>::hash(parent)) {
-			Ok(header) => match header {
+	fn calc_difficulty(&self, parent: B::Hash, cur: B::Hash) -> Result<Self::Difficulty, Error<B>> {
+		let parent_header = match self.client.header(BlockId::<B>::hash(parent)).map_err(|err| {
+				sc_consensus_pow::Error::Other(format!("{:?}", err))
+			})? {
 				Some(header) => header,
 				None => {
 					//:NOTICE: This should be the genesis header, use minimum_difficulty
 					return Ok(self.minimum_difficulty);
 				},
-			},
-			Err(err) => {
-				return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
-			},
-		};
-
-		let seal = match sc_consensus_pow::fetch_seal::<B>(
+			};
+		let raw_seal = match sc_consensus_pow::fetch_seal::<B>(
 				parent_header.digest().logs.last(),
 				parent,
 			) {
 			Ok(seal) => seal,
 			Err(err) => {
 				let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(*parent_header.number());
-				if nr == 0 { //:NOTICE: use minimum_difficulty in genesis block 
+				if nr == 0 { //:NOTICE: This should be the genesis header, use minimum_difficulty
 					return Ok(self.minimum_difficulty);
 				} else {
 					return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
 				}
 			},
 		};
-		let parent_seal = match WorkSeal::decode(&mut &seal[..]) {
-			Ok(seal) => seal,
-			Err(err) => {
-				return Err(sc_consensus_pow::Error::Other(format!("{:?}", err)));
-			},
-		};
+		let parent_seal = WorkSeal::decode(&mut &raw_seal[..]).map_err(|err| {
+				sc_consensus_pow::Error::Other(format!("{:?}", err))
+			})?;
 
+		let header = self.client.header(BlockId::<B>::hash(cur)).map_err(|err| {
+				sc_consensus_pow::Error::Other(format!("{:?}", err))
+			})?.ok_or_else(|| {
+				sc_consensus_pow::Error::Other(format!("there should be header"))
+			})?;
+		let raw_seal = sc_consensus_pow::fetch_seal::<B>(
+				header.digest().logs.last(),
+				cur,
+			).map_err(|err| {
+				sc_consensus_pow::Error::Other(format!("{:?}", err))
+			})?;
+		let seal = WorkSeal::decode(&mut &raw_seal[..]).map_err(|err| {
+				sc_consensus_pow::Error::Other(format!("{:?}", err))
+			})?;
+		
 		let min_difficulty = self.minimum_difficulty;
 		let difficulty_bound_divisor = self.difficulty_bound_divisor;
 		let duration_limit = self.duration_limit;
-		let now :u64 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
-        let mut target = if now >= parent_seal.timestamp + duration_limit {
-			parent_seal.difficulty - (parent_seal.difficulty / difficulty_bound_divisor)
+        let mut target = if seal.timestamp >= parent_seal.timestamp + duration_limit {
+			seal.difficulty - (seal.difficulty / difficulty_bound_divisor)
 		} else {
-			parent_seal.difficulty + (parent_seal.difficulty / difficulty_bound_divisor)
+			seal.difficulty + (seal.difficulty / difficulty_bound_divisor)
 		};
 		target = cmp::max(min_difficulty, target);
-		
+		debug!(target:"pow", "duration: {}, pTime: {}, cTime: {}, old_dif: {}, new_dif: {}", 
+			seal.timestamp-parent_seal.timestamp, parent_seal.timestamp, seal.timestamp, seal.difficulty, target);
+
 		// parent header difficulty
 		Ok(target)
 	}
@@ -280,11 +280,10 @@ where
 			Ok(seal) => seal,
 			Err(_) => return Ok(false),
 		};
-
-		match self.verify_seal(&seal) {
-			Ok(_) => {},
-			Err(_) => return Ok(false),
-		};
+		
+		self.verify_seal(&seal).map_err(|err| {
+				sc_consensus_pow::Error::Other(format!("{:?}", err))
+			})?;
 
 		Ok(true)
 	}

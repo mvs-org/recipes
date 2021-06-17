@@ -172,7 +172,7 @@ pub trait PowAlgorithm<B: BlockT> {
 	fn difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>>;
 
 	/// Get the next block's difficulty.
-	fn calc_difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>>;
+	fn calc_difficulty(&self, parent: B::Hash, cur: B::Hash) -> Result<Self::Difficulty, Error<B>>;
 
 	/// Verify that the seal is valid against given pre hash when parent block is not yet imported.
 	///
@@ -620,8 +620,7 @@ pub fn start_mining_worker<Block, C, S, Algorithm, E, SO, CAW>(
 
 		// The worker is locked for the duration of the whole proposing period. Within this period,
 		// the mining target is outdated and useless anyway.
-
-		let difficulty = match algorithm.calc_difficulty(*best_header.parent_hash()) {
+		let difficulty = match algorithm.calc_difficulty(*best_header.parent_hash(), best_hash) {
 			Ok(x) => x,
 			Err(err) => {
 				warn!(
@@ -686,7 +685,6 @@ pub fn start_mining_worker<Block, C, S, Algorithm, E, SO, CAW>(
 				},
 			};
 
-			//println!("******best_hash: {}, pre_hash: {}", best_hash, proposal.block.header().hash());
 			let build = MiningBuild::<Block, Algorithm, C> {
 				metadata: MiningMetadata {
 					best_hash,

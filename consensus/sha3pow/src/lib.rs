@@ -63,7 +63,7 @@ impl<B: BlockT<Hash = H256>> PowAlgorithm<B> for MinimalSha3Algorithm {
 		Ok(U256::from(1_000_000))
 	}
 
-	fn calc_difficulty(&self, _parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
+	fn calc_difficulty(&self, _parent: B::Hash, _cur: B::Hash) -> Result<Self::Difficulty, Error<B>> {
 		// Fixed difficulty hardcoded here
 		Ok(U256::from(1_000_000))
 	}
@@ -143,7 +143,7 @@ where
 			})
 	}
 
-	fn calc_difficulty(&self, parent: B::Hash) -> Result<Self::Difficulty, Error<B>> {
+	fn calc_difficulty(&self, parent: B::Hash, _cur: B::Hash) -> Result<Self::Difficulty, Error<B>> {
 		let parent_id = BlockId::<B>::hash(parent);
 		self.client
 			.runtime_api()

@@ -23,7 +23,7 @@ use futures::prelude::*;
 use ethash::{self, SeedHashCompute};
 use parity_scale_codec::{Decode, Encode};
 use ethereum_types::{self, U256 as EU256, H256 as EH256};
-use lazy_static::lazy_static;
+use log::{error, info, debug, trace, warn};
 
 // Our native executor instance.
 native_executor_instance!(
@@ -315,7 +315,7 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 	mut commands_stream: CS,
 )
 	where 
-	B: BlockT,
+	B: BlockT<Hash = H256>,
 	Algorithm: PowAlgorithm<B, Difficulty = U256>,
 	C: sp_api::ProvideRuntimeApi<B>,
 	CS: Stream<Item=EtheminerCmd<<B as BlockT>::Hash>> + Unpin + 'static,
@@ -328,11 +328,11 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 				let metadata = worker.lock().metadata();
 				if let Some(metadata) = metadata {
 					let nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(metadata.number);
-					let pow_hash:U256 = U256::from(metadata.pre_hash.as_ref());
-					let seed_hash:U256 = seed_compute.hash_block_number(nr).into();
+					let pow_hash:H256 = metadata.pre_hash;
+					let seed_hash:H256 = seed_compute.hash_block_number(nr).into();
 					let tmp:[u8; 32] = metadata.difficulty.into();
-					let tt = ethash::difficulty_to_boundary(&EU256::from(tmp));
-					let target:U256 = U256::from(tt.as_ref());
+					let tmp:[u8; 32] = ethash::difficulty_to_boundary(&EU256::from(tmp)).into();
+					let target:H256 = H256::from(tmp);
 
 					let ret = Ok(Work { 
 						pow_hash, 
@@ -355,6 +355,7 @@ pub async fn run_mining_svc<B, Algorithm, C, CS>(
 					let header_nr :u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(metadata.number);
 					let timestamp :u64 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 					let seal = WorkSeal{nonce:non_nr, pow_hash, mix_digest, difficulty:metadata.difficulty, header_nr, timestamp};
+					debug!(target:"pow", "worker.submit pow_hash: {}", pow_hash);
 					worker.submit(seal.encode());
 					ethash_rpc::send_result(&mut sender, Ok(true))
 				} else {

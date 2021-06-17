@@ -23,11 +23,11 @@ use parity_scale_codec::{Decode, Encode};
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Work {
     /// The proof-of-work hash.
-    pub pow_hash: U256,
+    pub pow_hash: H256,
     /// The seed hash.
-    pub seed_hash: U256,
+    pub seed_hash: H256,
     /// The target.
-    pub target: U256,
+    pub target: H256,
     /// The block number: this isn't always stored.
     pub number: Option<u64>,
 }
